@@ -1,0 +1,125 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Mein DeutschBuddy</title>
+  <style>
+    body {
+      background-color: #eaf3ff;
+      font-family: "Segoe UI", sans-serif;
+      color: #002b5c;
+      padding: 20px;
+      text-align: center;
+    }
+    h1 {
+      color: #005bbb;
+    }
+    .sentence {
+      margin: 12px 0;
+      padding: 10px;
+      background: #fff;
+      border-radius: 10px;
+      box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+      cursor: pointer;
+      transition: background 0.2s;
+    }
+    .sentence:hover {
+      background: #d6e8ff;
+    }
+    button {
+      margin: 10px;
+      padding: 10px 16px;
+      border: none;
+      border-radius: 6px;
+      background-color: #005bbb;
+      color: white;
+      font-size: 15px;
+      cursor: pointer;
+    }
+    button:hover {
+      background-color: #004999;
+    }
+  </style>
+</head>
+<body>
+  <h1>Mein DeutschBuddy 🎧</h1>
+  <p>👆 Tap a sentence to hear it.<br>🎬 Or press Play to hear them all automatically.</p>
+
+  <div id="sentences"></div>
+
+  <button id="playButton">▶️ Play</button>
+  <button id="stopButton">⏹️ Stop</button>
+  <button id="restartButton">⏮️ Restart</button>
+
+  <script>
+    // Example bilingual sentences
+    const sentences = [
+      {de: "Ich lerne Deutsch.", en: "I am learning German."},
+      {de: "Das ist mein Buch.", en: "This is my book."},
+      {de: "Ich trinke Wasser.", en: "I drink water."},
+      {de: "Wie geht es dir?", en: "How are you?"},
+      {de: "Ich liebe Musik.", en: "I love music."}
+    ];
+
+    const container = document.getElementById("sentences");
+    sentences.forEach((s, i) => {
+      const div = document.createElement("div");
+      div.className = "sentence";
+      div.innerHTML = `<b>${s.de}</b><br>${s.en}`;
+      div.onclick = () => speakSentence(i);
+      container.appendChild(div);
+    });
+
+    let currentIndex = 0;
+    let isPlaying = false;
+    let synth = window.speechSynthesis;
+
+    function speakSentence(index) {
+      if (synth.speaking) synth.cancel();
+      const s = sentences[index];
+      const utterDe = new SpeechSynthesisUtterance(s.de);
+      const utterEn = new SpeechSynthesisUtterance(s.en);
+      utterDe.lang = "de-DE";
+      utterEn.lang = "en-US";
+      utterDe.rate = 0.85;
+      utterEn.rate = 0.85;
+      synth.speak(utterDe);
+      utterDe.onend = () => synth.speak(utterEn);
+    }
+
+    function playAll() {
+      if (isPlaying) return;
+      isPlaying = true;
+      currentIndex = 0;
+      playNext();
+    }
+
+    function playNext() {
+      if (!isPlaying || currentIndex >= sentences.length) {
+        isPlaying = false;
+        return;
+      }
+      speakSentence(currentIndex);
+      const totalDelay = 6000; // ms (6 seconds per sentence)
+      currentIndex++;
+      setTimeout(playNext, totalDelay);
+    }
+
+    function stopAll() {
+      synth.cancel();
+      isPlaying = false;
+    }
+
+    function restart() {
+      stopAll();
+      currentIndex = 0;
+      playAll();
+    }
+
+    document.getElementById("playButton").onclick = playAll;
+    document.getElementById("stopButton").onclick = stopAll;
+    document.getElementById("restartButton").onclick = restart;
+  </script>
+</body>
+</html>
