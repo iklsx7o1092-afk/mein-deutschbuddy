@@ -1,125 +1,237 @@
+
 <!DOCTYPE html>
-<html lang="de">
+<html lang="en">
 <head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Mein DeutschBuddy</title>
+  <!-- Basit, tek sayfa; inline script kullandığımız için katı CSP koymuyoruz.
+       XSS'i zaten innerHTML kullanmayarak engelliyoruz. -->
   <style>
-    body {
-      background-color: #eaf3ff;
-      font-family: "Segoe UI", sans-serif;
-      color: #002b5c;
-      padding: 20px;
-      text-align: center;
-    }
-    h1 {
-      color: #005bbb;
-    }
-    .sentence {
-      margin: 12px 0;
-      padding: 10px;
-      background: #fff;
-      border-radius: 10px;
-      box-shadow: 0 2px 5px rgba(0,0,0,0.1);
-      cursor: pointer;
-      transition: background 0.2s;
-    }
-    .sentence:hover {
-      background: #d6e8ff;
-    }
-    button {
-      margin: 10px;
-      padding: 10px 16px;
-      border: none;
-      border-radius: 6px;
-      background-color: #005bbb;
-      color: white;
-      font-size: 15px;
-      cursor: pointer;
-    }
-    button:hover {
-      background-color: #004999;
-    }
+    :root { --blue:#4461ff; }
+    body{font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif;background:#eaf0ff;color:#222;margin:0;padding:20px;text-align:center}
+    h1{color:var(--blue);margin:8px 0 4px}
+    p.small{opacity:.75;margin:0 0 12px}
+    .wrap{max-width:900px;margin:0 auto}
+    textarea{width:100%;height:120px;border-radius:10px;border:2px solid var(--blue);padding:10px;font-size:16px;background:#fff;margin:6px 0}
+    .controls{display:flex;flex-wrap:wrap;gap:8px;justify-content:center;margin:10px 0 6px}
+    .btn{background:var(--blue);color:#fff;border:none;border-radius:10px;padding:10px 16px;font-weight:700;cursor:pointer}
+    .btn.alt{background:#6b7cff}
+    .status{font-size:.9rem;opacity:.8;min-height:1.2em;margin:4px 0 8px}
+    .card{background:#fff;border-radius:12px;box-shadow:0 4px 8px rgba(0,0,0,.1);padding:14px;margin:12px auto;text-align:left}
+    .line{padding-left:10px;margin:6px 0;border-left:6px solid #999}
+    .line.de{border-color:var(--blue)}
+    .pillbar{display:flex;gap:8px;flex-wrap:wrap;margin-top:8px}
+    .pill{background:#eef2ff;border:1px solid var(--blue);color:var(--blue);border-radius:999px;padding:6px 10px;font-weight:700;cursor:pointer;user-select:none}
+    .pill:active{transform:scale(.98)}
   </style>
 </head>
 <body>
-  <h1>Mein DeutschBuddy 🎧</h1>
-  <p>👆 Tap a sentence to hear it.<br>🎬 Or press Play to hear them all automatically.</p>
+  <div class="wrap">
+    <h1>Mein DeutschBuddy 💙</h1>
+    <p class="small">Paste German & English. Press <b>Show</b>. Use <b>Play / Stop / Restart</b> or per-sentence <b>Auto from here</b>.</p>
 
-  <div id="sentences"></div>
+    <textarea id="deInput" placeholder="🇩🇪 German sentences here..."></textarea>
+    <textarea id="enInput" placeholder="🇬🇧 English translations here..."></textarea>
 
-  <button id="playButton">▶️ Play</button>
-  <button id="stopButton">⏹️ Stop</button>
-  <button id="restartButton">⏮️ Restart</button>
+    <div class="controls">
+      <button id="btnShow" class="btn">Show</button>
+      <button id="btnPlay" class="btn">▶ Play</button>
+      <button id="btnStop" class="btn alt">⏹ Stop</button>
+      <button id="btnRestart" class="btn alt">⏮ Restart</button>
+    </div>
+    <div id="status" class="status"></div>
+
+    <div id="list"></div>
+  </div>
 
   <script>
-    // Example bilingual sentences
-    const sentences = [
-      {de: "Ich lerne Deutsch.", en: "I am learning German."},
-      {de: "Das ist mein Buch.", en: "This is my book."},
-      {de: "Ich trinke Wasser.", en: "I drink water."},
-      {de: "Wie geht es dir?", en: "How are you?"},
-      {de: "Ich liebe Musik.", en: "I love music."}
-    ];
+  'use strict';
 
-    const container = document.getElementById("sentences");
-    sentences.forEach((s, i) => {
-      const div = document.createElement("div");
-      div.className = "sentence";
-      div.innerHTML = `<b>${s.de}</b><br>${s.en}`;
-      div.onclick = () => speakSentence(i);
-      container.appendChild(div);
+  // ---- state ----
+  let currentIndex = 0;
+  let autoMode = false;
+  let lastStoppedIndex = 0;
+  let hasUserGesture = false;  // tarayıcıların ilk çalma için dokunuş şartı
+  let speaking = false;
+
+  // ---- helpers ----
+  const $ = sel => document.querySelector(sel);
+  const listEl = $('#list');
+  const statusEl = $('#status');
+
+  function setStatus(msg) {
+    statusEl.textContent = msg || '';
+  }
+
+  function splitSentences(txt) {
+    // . ! ? ile böl, boşlukları sadele
+    const parts = (txt || '')
+      .replace(/\s+/g, ' ')
+      .trim()
+      .match(/[^.!?]+[.!?]?/g) || [];
+    return parts.map(s => s.trim()).filter(Boolean);
+  }
+
+  function stopSpeaking(saveIndex = true) {
+    autoMode = false;
+    speaking = false;
+    try { window.speechSynthesis.cancel(); } catch {}
+    if (saveIndex) lastStoppedIndex = currentIndex;
+  }
+
+  function speak(text, lang, rate, onend) {
+    if (!('speechSynthesis' in window)) {
+      setStatus('Your browser does not support speechSynthesis.');
+      return;
+    }
+    if (!hasUserGesture) {
+      setStatus('Tap any button once, then Play (browser gesture required).');
+      return;
+    }
+    if (!text) { if (onend) onend(); return; }
+
+    const u = new SpeechSynthesisUtterance(text);
+    u.lang = lang;
+    u.rate = rate;
+    u.onstart = () => { speaking = true; };
+    u.onend = () => { speaking = false; if (onend) onend(); };
+    u.onerror = () => { speaking = false; if (onend) onend(); };
+
+    window.speechSynthesis.speak(u);
+  }
+
+  function playPairDEEN(de, en, done) {
+    // sıralı: DE → EN → DE → EN, sonra done()
+    speak(de, 'de-DE', 0.7, () => {
+      speak(en, 'en-US', 0.8, () => {
+        speak(de, 'de-DE', 0.7, () => {
+          speak(en, 'en-US', 0.8, () => { if (done) done(); });
+        });
+      });
+    });
+  }
+
+  function playNext() {
+    if (!autoMode) return;
+
+    const deArr = splitSentences($('#deInput').value);
+    const enArr = splitSentences($('#enInput').value);
+
+    if (currentIndex >= deArr.length) {
+      autoMode = false;
+      setStatus('Finished.');
+      return;
+    }
+
+    const de = deArr[currentIndex] || '';
+    const en = enArr[currentIndex] || '';
+    if (!de) { currentIndex++; playNext(); return; }
+
+    setStatus(`Playing ${currentIndex+1}/${deArr.length} …`);
+    playPairDEEN(de, en, () => {
+      if (!autoMode) return;
+      currentIndex++;
+      playNext();
+    });
+  }
+
+  function playAll() {
+    stopSpeaking(false);
+    currentIndex = (lastStoppedIndex || 0);
+    autoMode = true;
+    playNext();
+  }
+
+  function restartAll() {
+    stopSpeaking(false);
+    currentIndex = 0;
+    lastStoppedIndex = 0;
+    autoMode = true;
+    playNext();
+  }
+
+  function playFrom(i) {
+    stopSpeaking(false);
+    currentIndex = i;
+    autoMode = true;
+    playNext();
+  }
+
+  // ---- render list ----
+  function renderList() {
+    const deArr = splitSentences($('#deInput').value);
+    const enArr = splitSentences($('#enInput').value);
+    listEl.innerHTML = '';
+
+    deArr.forEach((de, i) => {
+      if (!de) return;
+      const en = enArr[i] || '';
+
+      const card = document.createElement('div');
+      card.className = 'card';
+
+      const lineDe = document.createElement('div');
+      lineDe.className = 'line de';
+      lineDe.textContent = `🇩🇪 ${de}`;
+
+      const lineEn = document.createElement('div');
+      lineEn.className = 'line';
+      lineEn.textContent = `🇬🇧 ${en}`;
+
+      const bar = document.createElement('div');
+      bar.className = 'pillbar';
+
+      const bDe = document.createElement('button');
+      bDe.className = 'pill';
+      bDe.type = 'button';
+      bDe.textContent = '🔊 German';
+      bDe.addEventListener('click', () => {
+        hasUserGesture = true;
+        stopSpeaking(false);
+        speak(de, 'de-DE', 0.8);
+      });
+
+      const bEn = document.createElement('button');
+      bEn.className = 'pill';
+      bEn.type = 'button';
+      bEn.textContent = '🔊 English';
+      bEn.addEventListener('click', () => {
+        hasUserGesture = true;
+        stopSpeaking(false);
+        speak(en, 'en-US', 0.9);
+      });
+
+      const bAuto = document.createElement('button');
+      bAuto.className = 'pill';
+      bAuto.type = 'button';
+      bAuto.textContent = '▶ Auto from here';
+      bAuto.addEventListener('click', () => {
+        hasUserGesture = true;
+        playFrom(i);
+      });
+
+      bar.appendChild(bDe);
+      bar.appendChild(bEn);
+      bar.appendChild(bAuto);
+
+      card.appendChild(lineDe);
+      card.appendChild(lineEn);
+      card.appendChild(bar);
+      listEl.appendChild(card);
     });
 
-    let currentIndex = 0;
-    let isPlaying = false;
-    let synth = window.speechSynthesis;
+    setStatus(`Loaded ${deArr.length} sentence(s).`);
+  }
 
-    function speakSentence(index) {
-      if (synth.speaking) synth.cancel();
-      const s = sentences[index];
-      const utterDe = new SpeechSynthesisUtterance(s.de);
-      const utterEn = new SpeechSynthesisUtterance(s.en);
-      utterDe.lang = "de-DE";
-      utterEn.lang = "en-US";
-      utterDe.rate = 0.85;
-      utterEn.rate = 0.85;
-      synth.speak(utterDe);
-      utterDe.onend = () => synth.speak(utterEn);
-    }
+  // ---- events ----
+  $('#btnShow').addEventListener('click', () => { hasUserGesture = true; renderList(); });
+  $('#btnPlay').addEventListener('click', () => { hasUserGesture = true; playAll(); });
+  $('#btnStop').addEventListener('click', () => { hasUserGesture = true; stopSpeaking(); setStatus('Stopped.'); });
+  $('#btnRestart').addEventListener('click', () => { hasUserGesture = true; restartAll(); });
 
-    function playAll() {
-      if (isPlaying) return;
-      isPlaying = true;
-      currentIndex = 0;
-      playNext();
-    }
-
-    function playNext() {
-      if (!isPlaying || currentIndex >= sentences.length) {
-        isPlaying = false;
-        return;
-      }
-      speakSentence(currentIndex);
-      const totalDelay = 6000; // ms (6 seconds per sentence)
-      currentIndex++;
-      setTimeout(playNext, totalDelay);
-    }
-
-    function stopAll() {
-      synth.cancel();
-      isPlaying = false;
-    }
-
-    function restart() {
-      stopAll();
-      currentIndex = 0;
-      playAll();
-    }
-
-    document.getElementById("playButton").onclick = playAll;
-    document.getElementById("stopButton").onclick = stopAll;
-    document.getElementById("restartButton").onclick = restart;
+  // kullanıcı ilk dokunuşunu yakala
+  document.addEventListener('pointerdown', () => { hasUserGesture = true; }, { once:true });
   </script>
 </body>
 </html>
