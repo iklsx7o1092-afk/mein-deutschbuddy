@@ -1,4 +1,3 @@
-
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -6,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Mein DeutschBuddy</title>
   <style>
-    :root { --blue:#4461ff; }
+    :root { --blue:#4461ff; --playing:#ffe9a8; }
     body{font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif;background:#eaf0ff;color:#222;margin:0;padding:20px;text-align:center}
     h1{color:var(--blue);margin:8px 0 4px}
     p.small{opacity:.75;margin:0 0 12px}
@@ -19,28 +18,54 @@
     .card{background:#fff;border-radius:12px;box-shadow:0 4px 8px rgba(0,0,0,.1);padding:14px;margin:12px auto;text-align:left}
     .line{padding-left:10px;margin:6px 0;border-left:6px solid #999}
     .line.de{border-color:var(--blue)}
+    .card.playing{background:var(--playing)}
     .pillbar{display:flex;gap:8px;flex-wrap:wrap;margin-top:8px}
     .pill{background:#eef2ff;border:1px solid var(--blue);color:var(--blue);border-radius:999px;padding:6px 10px;font-weight:700;cursor:pointer;user-select:none}
-    .pill:active{transform:scale(.98)}
+    .pill.toggle.active{background:var(--blue); color:#fff}
+    .panel{display:flex;flex-wrap:wrap;gap:14px;justify-content:center;align-items:center;margin:10px 0}
+    .group{background:#fff;border:1px solid #cdd3ff;border-radius:12px;padding:8px 12px;display:flex;align-items:center;gap:10px}
+    .group label{font-weight:700;color:#344}
+    input[type="range"]{accent-color:var(--blue)}
+    .value{min-width:2.5ch;text-align:right;font-variant-numeric:tabular-nums}
   </style>
 </head>
 <body>
   <div class="wrap">
     <h1>Mein DeutschBuddy 💙</h1>
-    <p class="small">Paste German & English. Press <b>Show</b>. Use <b>Play / Stop / Restart</b>, <b>German-only</b>, or per-sentence <b>Auto from here</b>.</p>
+    <p class="small">Paste German & English → <b>Show</b>. Sonra <b>Play</b> / <b>German-only</b>. Hız ve tekrar ayarı aşağıda.</p>
 
     <textarea id="deInput" placeholder="🇩🇪 German sentences here..."></textarea>
     <textarea id="enInput" placeholder="🇬🇧 English translations here..."></textarea>
 
     <div class="controls">
       <button id="btnShow" class="btn">Show</button>
-      <button id="btnPlay" class="btn">▶ Play (DE→EN→DE→EN)</button>
+      <button id="btnPlay" class="btn">▶ Play (DE→EN)</button>
       <button id="btnGermanOnly" class="btn">▶ German-only (auto)</button>
       <button id="btnStop" class="btn alt">⏹ Stop</button>
       <button id="btnRestart" class="btn alt">⏮ Restart</button>
     </div>
-    <div id="status" class="status"></div>
 
+    <!-- Hız & Tekrar Paneli -->
+    <div class="panel">
+      <div class="group">
+        <label for="deRate">DE speed</label>
+        <input id="deRate" type="range" min="0.4" max="1.2" step="0.05" value="0.75" />
+        <span class="value" id="deRateVal">0.75</span>
+      </div>
+      <div class="group">
+        <label for="enRate">EN speed</label>
+        <input id="enRate" type="range" min="0.5" max="1.3" step="0.05" value="0.85" />
+        <span class="value" id="enRateVal">0.85</span>
+      </div>
+      <div class="group">
+        <label>Repeats</label>
+        <button class="pill toggle" data-repeats="2">x2</button>
+        <button class="pill toggle" data-repeats="3">x3</button>
+        <button class="pill toggle" data-repeats="4">x4</button>
+      </div>
+    </div>
+
+    <div id="status" class="status"></div>
     <div id="list"></div>
   </div>
 
@@ -54,6 +79,12 @@
   let lastStoppedIndex = 0;
   let hasUserGesture = false;
   let speaking = false;
+  let playId = 0;
+
+  // Ayarlar
+  let deRate = 0.75;
+  let enRate = 0.85;
+  let repeats = 2; // x2 varsayılan
 
   // ---- helpers ----
   const $ = sel => document.querySelector(sel);
@@ -67,63 +98,91 @@
     return parts.map(s => s.trim()).filter(Boolean);
   }
 
+  function buildPairs() {
+    const de = splitSentences($('#deInput').value);
+    const en = splitSentences($('#enInput').value);
+    const len = Math.max(de.length, en.length);
+    const pairs = [];
+    for (let i=0;i<len;i++) pairs.push({ de: de[i] || '', en: en[i] || '' });
+    return pairs;
+  }
+
   function stopSpeaking(saveIndex = true) {
     autoMode = false;
-    germanOnlyMode = false;
     speaking = false;
-    try { window.speechSynthesis.cancel(); } catch {}
+    germanOnlyMode = false;
+    playId++;
+    const synth = window.speechSynthesis;
+    try { synth.cancel(); setTimeout(()=>synth.cancel(),0); setTimeout(()=>synth.cancel(),60); } catch {}
     if (saveIndex) lastStoppedIndex = currentIndex;
+    clearPlayingHighlight();
     setStatus('Stopped.');
   }
 
   function speak(text, lang, rate, onend) {
     if (!('speechSynthesis' in window)) { setStatus('speechSynthesis not supported.'); return; }
     if (!hasUserGesture) { setStatus('Tap any button once, then Play.'); return; }
+    const myId = playId;
     if (!text) { if (onend) onend(); return; }
     const u = new SpeechSynthesisUtterance(text);
     u.lang = lang; u.rate = rate;
-    u.onstart = () => { speaking = true; };
-    u.onerror = () => { speaking = false; if (onend) onend(); };
-    u.onend = () => { speaking = false; if (onend) onend(); };
+    u.onstart = () => { if (myId !== playId) return; speaking = true; };
+    u.onerror = () => { if (myId !== playId) return; speaking = false; if (onend) onend(); };
+    u.onend = () => { if (myId !== playId) return; speaking = false; if (onend) onend(); };
     window.speechSynthesis.speak(u);
   }
 
-  // DE→EN→DE→EN for one pair
-  function playPairDEEN(de, en, done) {
-    speak(de, 'de-DE', 0.7, () => {
-      speak(en, 'en-US', 0.8, () => {
-        speak(de, 'de-DE', 0.7, () => {
-          speak(en, 'en-US', 0.8, () => { if (done) done(); });
+  // Tek cümle için DE→EN dizisini "repeats" kadar uygula
+  function playPairWithRepeats(pair, done) {
+    let count = 0;
+    const step = () => {
+      if (count >= repeats) { if (done) done(); return; }
+      speak(pair.de, 'de-DE', deRate, () => {
+        speak(pair.en, 'en-US', enRate, () => {
+          count++;
+          step();
         });
       });
-    });
+    };
+    step();
+  }
+
+  function setPlayingHighlight(i) {
+    clearPlayingHighlight();
+    const card = listEl.querySelector(`[data-idx="${i}"]`);
+    if (card) card.classList.add('playing');
+  }
+  function clearPlayingHighlight() {
+    listEl.querySelectorAll('.card.playing').forEach(c => c.classList.remove('playing'));
   }
 
   function playNext() {
     if (!autoMode) return;
+    const pairs = buildPairs();
 
-    const deArr = splitSentences($('#deInput').value);
-    const enArr = splitSentences($('#enInput').value);
+    if (currentIndex >= pairs.length) {
+      autoMode = false; clearPlayingHighlight(); setStatus('Finished.');
+      return;
+    }
 
-    if (currentIndex >= deArr.length) { autoMode = false; setStatus('Finished.'); return; }
+    const pair = pairs[currentIndex];
+    if (!pair.de && !pair.en) { currentIndex++; playNext(); return; }
 
-    const de = deArr[currentIndex] || '';
-    const en = enArr[currentIndex] || '';
-
-    if (!de) { currentIndex++; playNext(); return; }
-
-    setStatus(`Playing ${currentIndex+1}/${deArr.length} …`);
+    setStatus(`Playing ${currentIndex + 1}/${pairs.length} …`);
+    setPlayingHighlight(currentIndex);
 
     if (germanOnlyMode) {
-      // Only German, then go next
-      speak(de, 'de-DE', 0.75, () => {
+      // Yalnızca Almanca — repeats kadar
+      let c = 0;
+      const loopDE = () => {
         if (!autoMode) return;
-        currentIndex++;
-        playNext();
-      });
+        if (c >= repeats) { currentIndex++; playNext(); return; }
+        speak(pair.de, 'de-DE', deRate, () => { c++; loopDE(); });
+      };
+      loopDE();
     } else {
-      // Full pair DE→EN→DE→EN
-      playPairDEEN(de, en, () => {
+      // DE→EN dizisini repeats kadar
+      playPairWithRepeats(pair, () => {
         if (!autoMode) return;
         currentIndex++;
         playNext();
@@ -151,8 +210,7 @@
     stopSpeaking(false);
     currentIndex = 0;
     lastStoppedIndex = 0;
-    autoMode = true;
-    // keep current mode (germanOnlyMode stays as-is)
+    autoMode = true; // mevcut germanOnlyMode korunur
     playNext();
   }
 
@@ -166,24 +224,23 @@
 
   // ---- render list ----
   function renderList() {
-    const deArr = splitSentences($('#deInput').value);
-    const enArr = splitSentences($('#enInput').value);
+    const pairs = buildPairs();
     listEl.innerHTML = '';
 
-    deArr.forEach((de, i) => {
-      if (!de) return;
-      const en = enArr[i] || '';
+    pairs.forEach((pair, i) => {
+      if (!pair.de && !pair.en) return;
 
       const card = document.createElement('div');
       card.className = 'card';
+      card.dataset.idx = String(i);
 
       const lineDe = document.createElement('div');
       lineDe.className = 'line de';
-      lineDe.textContent = `🇩🇪 ${de}`;
+      lineDe.textContent = `🇩🇪 ${pair.de || ''}`;
 
       const lineEn = document.createElement('div');
       lineEn.className = 'line';
-      lineEn.textContent = `🇬🇧 ${en}`;
+      lineEn.textContent = `🇬🇧 ${pair.en || ''}`;
 
       const bar = document.createElement('div');
       bar.className = 'pillbar';
@@ -192,14 +249,14 @@
       bDe.className = 'pill'; bDe.type = 'button';
       bDe.textContent = '🔊 German';
       bDe.addEventListener('click', () => {
-        hasUserGesture = true; stopSpeaking(false); speak(de, 'de-DE', 0.8);
+        hasUserGesture = true; stopSpeaking(false); speak(pair.de, 'de-DE', deRate);
       });
 
       const bEn = document.createElement('button');
       bEn.className = 'pill'; bEn.type = 'button';
       bEn.textContent = '🔊 English';
       bEn.addEventListener('click', () => {
-        hasUserGesture = true; stopSpeaking(false); speak(en, 'en-US', 0.9);
+        hasUserGesture = true; stopSpeaking(false); speak(pair.en, 'en-US', enRate);
       });
 
       const bAuto = document.createElement('button');
@@ -216,10 +273,18 @@
         hasUserGesture = true; playFrom(i, true);
       });
 
+      const bStopHere = document.createElement('button');
+      bStopHere.className = 'pill'; bStopHere.type = 'button';
+      bStopHere.textContent = '⏹ Stop here';
+      bStopHere.addEventListener('click', () => {
+        hasUserGesture = true; currentIndex = i; stopSpeaking(true);
+      });
+
       bar.appendChild(bDe);
       bar.appendChild(bEn);
       bar.appendChild(bAuto);
       bar.appendChild(bAutoDe);
+      bar.appendChild(bStopHere);
 
       card.appendChild(lineDe);
       card.appendChild(lineEn);
@@ -227,18 +292,47 @@
       listEl.appendChild(card);
     });
 
-    setStatus(`Loaded ${deArr.length} sentence(s).`);
+    setStatus(`Loaded ${pairs.length} sentence(s).`);
   }
 
-  // ---- events ----
+  // ---- UI bağlama ----
   $('#btnShow').addEventListener('click', () => { hasUserGesture = true; renderList(); });
   $('#btnPlay').addEventListener('click', () => { hasUserGesture = true; playAll(); });
   $('#btnGermanOnly').addEventListener('click', () => { hasUserGesture = true; playAllGerman(); });
   $('#btnStop').addEventListener('click', () => { hasUserGesture = true; stopSpeaking(); });
   $('#btnRestart').addEventListener('click', () => { hasUserGesture = true; restartAll(); });
 
-  // first gesture requirement
+  // Sliderlar
+  const deRateInput = $('#deRate');
+  const enRateInput = $('#enRate');
+  const deRateVal = $('#deRateVal');
+  const enRateVal = $('#enRateVal');
+
+  function updateRateUI() {
+    deRateVal.textContent = Number(deRate).toFixed(2);
+    enRateVal.textContent = Number(enRate).toFixed(2);
+  }
+  deRateInput.addEventListener('input', e => { deRate = Number(e.target.value); updateRateUI(); });
+  enRateInput.addEventListener('input', e => { enRate = Number(e.target.value); updateRateUI(); });
+  updateRateUI();
+
+  // Tekrar butonları
+  const repeatButtons = Array.from(document.querySelectorAll('.pill.toggle'));
+  function setRepeats(n) {
+    repeats = n;
+    repeatButtons.forEach(b => b.classList.toggle('active', Number(b.dataset.repeats) === repeats));
+  }
+  repeatButtons.forEach(btn => {
+    btn.addEventListener('click', () => {
+      hasUserGesture = true;
+      setRepeats(Number(btn.dataset.repeats));
+    });
+  });
+  setRepeats(2); // varsayılan x2
+
+  // İlk gesture
   document.addEventListener('pointerdown', () => { hasUserGesture = true; }, { once:true });
   </script>
 </body>
 </html>
+  
