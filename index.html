@@ -5,8 +5,6 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Mein DeutschBuddy</title>
-  <!-- Basit, tek sayfa; inline script kullandığımız için katı CSP koymuyoruz.
-       XSS'i zaten innerHTML kullanmayarak engelliyoruz. -->
   <style>
     :root { --blue:#4461ff; }
     body{font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif;background:#eaf0ff;color:#222;margin:0;padding:20px;text-align:center}
@@ -29,14 +27,15 @@
 <body>
   <div class="wrap">
     <h1>Mein DeutschBuddy 💙</h1>
-    <p class="small">Paste German & English. Press <b>Show</b>. Use <b>Play / Stop / Restart</b> or per-sentence <b>Auto from here</b>.</p>
+    <p class="small">Paste German & English. Press <b>Show</b>. Use <b>Play / Stop / Restart</b>, <b>German-only</b>, or per-sentence <b>Auto from here</b>.</p>
 
     <textarea id="deInput" placeholder="🇩🇪 German sentences here..."></textarea>
     <textarea id="enInput" placeholder="🇬🇧 English translations here..."></textarea>
 
     <div class="controls">
       <button id="btnShow" class="btn">Show</button>
-      <button id="btnPlay" class="btn">▶ Play</button>
+      <button id="btnPlay" class="btn">▶ Play (DE→EN→DE→EN)</button>
+      <button id="btnGermanOnly" class="btn">▶ German-only (auto)</button>
       <button id="btnStop" class="btn alt">⏹ Stop</button>
       <button id="btnRestart" class="btn alt">⏮ Restart</button>
     </div>
@@ -51,8 +50,9 @@
   // ---- state ----
   let currentIndex = 0;
   let autoMode = false;
+  let germanOnlyMode = false;
   let lastStoppedIndex = 0;
-  let hasUserGesture = false;  // tarayıcıların ilk çalma için dokunuş şartı
+  let hasUserGesture = false;
   let speaking = false;
 
   // ---- helpers ----
@@ -60,49 +60,36 @@
   const listEl = $('#list');
   const statusEl = $('#status');
 
-  function setStatus(msg) {
-    statusEl.textContent = msg || '';
-  }
+  function setStatus(msg) { statusEl.textContent = msg || ''; }
 
   function splitSentences(txt) {
-    // . ! ? ile böl, boşlukları sadele
-    const parts = (txt || '')
-      .replace(/\s+/g, ' ')
-      .trim()
-      .match(/[^.!?]+[.!?]?/g) || [];
+    const parts = (txt || '').replace(/\s+/g,' ').trim().match(/[^.!?]+[.!?]?/g) || [];
     return parts.map(s => s.trim()).filter(Boolean);
   }
 
   function stopSpeaking(saveIndex = true) {
     autoMode = false;
+    germanOnlyMode = false;
     speaking = false;
     try { window.speechSynthesis.cancel(); } catch {}
     if (saveIndex) lastStoppedIndex = currentIndex;
+    setStatus('Stopped.');
   }
 
   function speak(text, lang, rate, onend) {
-    if (!('speechSynthesis' in window)) {
-      setStatus('Your browser does not support speechSynthesis.');
-      return;
-    }
-    if (!hasUserGesture) {
-      setStatus('Tap any button once, then Play (browser gesture required).');
-      return;
-    }
+    if (!('speechSynthesis' in window)) { setStatus('speechSynthesis not supported.'); return; }
+    if (!hasUserGesture) { setStatus('Tap any button once, then Play.'); return; }
     if (!text) { if (onend) onend(); return; }
-
     const u = new SpeechSynthesisUtterance(text);
-    u.lang = lang;
-    u.rate = rate;
+    u.lang = lang; u.rate = rate;
     u.onstart = () => { speaking = true; };
-    u.onend = () => { speaking = false; if (onend) onend(); };
     u.onerror = () => { speaking = false; if (onend) onend(); };
-
+    u.onend = () => { speaking = false; if (onend) onend(); };
     window.speechSynthesis.speak(u);
   }
 
+  // DE→EN→DE→EN for one pair
   function playPairDEEN(de, en, done) {
-    // sıralı: DE → EN → DE → EN, sonra done()
     speak(de, 'de-DE', 0.7, () => {
       speak(en, 'en-US', 0.8, () => {
         speak(de, 'de-DE', 0.7, () => {
@@ -118,27 +105,44 @@
     const deArr = splitSentences($('#deInput').value);
     const enArr = splitSentences($('#enInput').value);
 
-    if (currentIndex >= deArr.length) {
-      autoMode = false;
-      setStatus('Finished.');
-      return;
-    }
+    if (currentIndex >= deArr.length) { autoMode = false; setStatus('Finished.'); return; }
 
     const de = deArr[currentIndex] || '';
     const en = enArr[currentIndex] || '';
+
     if (!de) { currentIndex++; playNext(); return; }
 
     setStatus(`Playing ${currentIndex+1}/${deArr.length} …`);
-    playPairDEEN(de, en, () => {
-      if (!autoMode) return;
-      currentIndex++;
-      playNext();
-    });
+
+    if (germanOnlyMode) {
+      // Only German, then go next
+      speak(de, 'de-DE', 0.75, () => {
+        if (!autoMode) return;
+        currentIndex++;
+        playNext();
+      });
+    } else {
+      // Full pair DE→EN→DE→EN
+      playPairDEEN(de, en, () => {
+        if (!autoMode) return;
+        currentIndex++;
+        playNext();
+      });
+    }
   }
 
   function playAll() {
     stopSpeaking(false);
     currentIndex = (lastStoppedIndex || 0);
+    germanOnlyMode = false;
+    autoMode = true;
+    playNext();
+  }
+
+  function playAllGerman() {
+    stopSpeaking(false);
+    currentIndex = (lastStoppedIndex || 0);
+    germanOnlyMode = true;
     autoMode = true;
     playNext();
   }
@@ -148,12 +152,14 @@
     currentIndex = 0;
     lastStoppedIndex = 0;
     autoMode = true;
+    // keep current mode (germanOnlyMode stays as-is)
     playNext();
   }
 
-  function playFrom(i) {
+  function playFrom(i, germanOnly=false) {
     stopSpeaking(false);
     currentIndex = i;
+    germanOnlyMode = germanOnly;
     autoMode = true;
     playNext();
   }
@@ -183,37 +189,37 @@
       bar.className = 'pillbar';
 
       const bDe = document.createElement('button');
-      bDe.className = 'pill';
-      bDe.type = 'button';
+      bDe.className = 'pill'; bDe.type = 'button';
       bDe.textContent = '🔊 German';
       bDe.addEventListener('click', () => {
-        hasUserGesture = true;
-        stopSpeaking(false);
-        speak(de, 'de-DE', 0.8);
+        hasUserGesture = true; stopSpeaking(false); speak(de, 'de-DE', 0.8);
       });
 
       const bEn = document.createElement('button');
-      bEn.className = 'pill';
-      bEn.type = 'button';
+      bEn.className = 'pill'; bEn.type = 'button';
       bEn.textContent = '🔊 English';
       bEn.addEventListener('click', () => {
-        hasUserGesture = true;
-        stopSpeaking(false);
-        speak(en, 'en-US', 0.9);
+        hasUserGesture = true; stopSpeaking(false); speak(en, 'en-US', 0.9);
       });
 
       const bAuto = document.createElement('button');
-      bAuto.className = 'pill';
-      bAuto.type = 'button';
+      bAuto.className = 'pill'; bAuto.type = 'button';
       bAuto.textContent = '▶ Auto from here';
       bAuto.addEventListener('click', () => {
-        hasUserGesture = true;
-        playFrom(i);
+        hasUserGesture = true; playFrom(i, false);
+      });
+
+      const bAutoDe = document.createElement('button');
+      bAutoDe.className = 'pill'; bAutoDe.type = 'button';
+      bAutoDe.textContent = '▶ German-only from here';
+      bAutoDe.addEventListener('click', () => {
+        hasUserGesture = true; playFrom(i, true);
       });
 
       bar.appendChild(bDe);
       bar.appendChild(bEn);
       bar.appendChild(bAuto);
+      bar.appendChild(bAutoDe);
 
       card.appendChild(lineDe);
       card.appendChild(lineEn);
@@ -227,10 +233,11 @@
   // ---- events ----
   $('#btnShow').addEventListener('click', () => { hasUserGesture = true; renderList(); });
   $('#btnPlay').addEventListener('click', () => { hasUserGesture = true; playAll(); });
-  $('#btnStop').addEventListener('click', () => { hasUserGesture = true; stopSpeaking(); setStatus('Stopped.'); });
+  $('#btnGermanOnly').addEventListener('click', () => { hasUserGesture = true; playAllGerman(); });
+  $('#btnStop').addEventListener('click', () => { hasUserGesture = true; stopSpeaking(); });
   $('#btnRestart').addEventListener('click', () => { hasUserGesture = true; restartAll(); });
 
-  // kullanıcı ilk dokunuşunu yakala
+  // first gesture requirement
   document.addEventListener('pointerdown', () => { hasUserGesture = true; }, { once:true });
   </script>
 </body>
