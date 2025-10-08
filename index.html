@@ -27,11 +27,10 @@
 </head>
 <body>
   <h1>Mein DeutschBuddy 💙</h1>
-  <p>Almanca yaz → İngilizcesi otomatik gelir 💫</p>
+  <p>Almanca & İngilizce cümlelerini yaz, dinle ve pratik yap 🎧</p>
 
-  <textarea id="deInput" placeholder="🇩🇪 Write German sentences..."></textarea>
-  <textarea id="enInput" placeholder="🇬🇧 English translations will appear here..."></textarea>
-  <button id="btnTranslate" class="btn alt">🌍 Translate</button>
+  <textarea id="deInput" placeholder="🇩🇪 German sentences..."></textarea>
+  <textarea id="enInput" placeholder="🇬🇧 English translations..."></textarea>
 
   <div class="controls">
     <button id="btnShow">Show</button>
@@ -69,6 +68,7 @@
 let currentIndex=0,autoMode=false,germanOnlyMode=false,hasGesture=false;
 let deRate=0.8,enRate=0.9,repeats=2;
 const $=s=>document.querySelector(s),listEl=$('#list'),statusEl=$('#status');
+
 function setStatus(t){statusEl.textContent=t||'';}
 function split(txt){return (txt||'').replace(/\s+/g,' ').trim().match(/[^.!?]+[.!?]?/g)||[];}
 function buildPairs(){
@@ -76,23 +76,38 @@ function buildPairs(){
   const n=Math.max(de.length,en.length);
   return Array.from({length:n},(_,i)=>({de:de[i]||'',en:en[i]||''}));
 }
+
 function speak(text,lang,rate,onend){
   if(!text){onend&&onend();return;}
   const u=new SpeechSynthesisUtterance(text);
   u.lang=lang;u.rate=rate;u.onend=()=>onend&&onend();
   speechSynthesis.speak(u);
 }
-function stopAll(){speechSynthesis.cancel();autoMode=false;setStatus('Stopped.');listEl.querySelectorAll('.card').forEach(c=>c.classList.remove('playing'));}
+
+function stopAll(){
+  speechSynthesis.cancel();
+  autoMode=false;
+  setStatus('Stopped.');
+  listEl.querySelectorAll('.card').forEach(c=>c.classList.remove('playing'));
+}
+
 function renderList(){
-  const pairs=buildPairs();listEl.innerHTML='';
+  const pairs=buildPairs();
+  listEl.innerHTML='';
   pairs.forEach((p,i)=>{
     if(!p.de&&!p.en)return;
-    const c=document.createElement('div');c.className='card';c.dataset.idx=i;
-    const l=document.createElement('div');l.className='line de';l.textContent='🇩🇪 '+p.de;c.appendChild(l);
-    if(!germanOnlyMode){const e=document.createElement('div');e.className='line';e.textContent='🇬🇧 '+p.en;c.appendChild(e);}
+    const c=document.createElement('div');
+    c.className='card';c.dataset.idx=i;
+    const l=document.createElement('div');
+    l.className='line de';l.textContent='🇩🇪 '+p.de;c.appendChild(l);
+    if(!germanOnlyMode){
+      const e=document.createElement('div');
+      e.className='line';e.textContent='🇬🇧 '+p.en;c.appendChild(e);
+    }
     listEl.appendChild(c);
   });
 }
+
 function playGermanOnly(){
   const pairs=buildPairs();autoMode=true;germanOnlyMode=true;currentIndex=0;
   function next(){
@@ -100,14 +115,19 @@ function playGermanOnly(){
     if(currentIndex>=pairs.length){setStatus('Finished.');autoMode=false;return;}
     const p=pairs[currentIndex];
     listEl.querySelectorAll('.card').forEach(c=>c.classList.remove('playing'));
-    const card=listEl.querySelector(`[data-idx="${currentIndex}"]`);if(card)card.classList.add('playing');
+    const card=listEl.querySelector(`[data-idx="${currentIndex}"]`);
+    if(card)card.classList.add('playing');
     setStatus(`Playing ${currentIndex+1}/${pairs.length}`);
-    let r=0;const loop=()=>{if(r>=repeats){currentIndex++;next();return;}
-      speak(p.de,'de-DE',deRate,()=>{r++;loop();});};
+    let r=0;
+    const loop=()=>{
+      if(r>=repeats){currentIndex++;next();return;}
+      speak(p.de,'de-DE',deRate,()=>{r++;loop();});
+    };
     loop();
   }
   next();
 }
+
 function playNormal(){
   const pairs=buildPairs();autoMode=true;germanOnlyMode=false;currentIndex=0;
   function next(){
@@ -115,18 +135,39 @@ function playNormal(){
     if(currentIndex>=pairs.length){setStatus('Finished.');return;}
     const p=pairs[currentIndex];
     listEl.querySelectorAll('.card').forEach(c=>c.classList.remove('playing'));
-    const card=listEl.querySelector(`[data-idx="${currentIndex}"]`);if(card)card.classList.add('playing');
-    let r=0;const seq=()=>{if(r>=repeats){currentIndex++;next();return;}
-      speak(p.de,'de-DE',deRate,()=>{speak(p.en,'en-US',enRate,()=>{r++;seq();});});};
+    const card=listEl.querySelector(`[data-idx="${currentIndex}"]`);
+    if(card)card.classList.add('playing');
+    let r=0;
+    const seq=()=>{
+      if(r>=repeats){currentIndex++;next();return;}
+      speak(p.de,'de-DE',deRate,()=>{speak(p.en,'en-US',enRate,()=>{r++;seq();});});
+    };
     seq();
-  }next();
+  }
+  next();
 }
-$('#btnShow').onclick=()=>{hasGesture=true;$('#enInput').style.display='';$('#modeTag').style.display='none';germanOnlyMode=false;renderList();};
-$('#btnPlay').onclick=()=>{hasGesture=true;speechSynthesis.cancel();germanOnlyMode=false;renderList();playNormal();};
+
+$('#btnShow').onclick=()=>{
+  hasGesture=true;
+  $('#enInput').style.display='';
+  $('#modeTag').style.display='none';
+  germanOnlyMode=false;
+  renderList();
+};
+$('#btnPlay').onclick=()=>{
+  hasGesture=true;
+  speechSynthesis.cancel();
+  germanOnlyMode=false;
+  renderList();
+  playNormal();
+};
 $('#btnGermanOnly').onclick=()=>{
-  hasGesture=true;speechSynthesis.cancel();
-  $('#enInput').style.display='none';$('#modeTag').style.display='block';
-  germanOnlyMode=true;renderList();
+  hasGesture=true;
+  speechSynthesis.cancel();
+  $('#enInput').style.display='none';
+  $('#modeTag').style.display='block';
+  germanOnlyMode=true;
+  renderList();
   setTimeout(()=>playGermanOnly(),200);
 };
 $('#btnStop').onclick=()=>{stopAll();$('#modeTag').style.display='none';};
@@ -134,47 +175,19 @@ $('#btnStop').onclick=()=>{stopAll();$('#modeTag').style.display='none';};
 // hız sliderları
 const deR=$('#deRate'),enR=$('#enRate'),deV=$('#deRateVal'),enV=$('#enRateVal');
 function upd(){deV.textContent=deRate.toFixed(2);enV.textContent=enRate.toFixed(2);}
-deR.oninput=e=>{deRate=+e.target.value;upd();};enR.oninput=e=>{enRate=+e.target.value;upd();};upd();
+deR.oninput=e=>{deRate=+e.target.value;upd();};
+enR.oninput=e=>{enRate=+e.target.value;upd();};
+upd();
 
-// tekrar seçim
+// tekrar seçimi
 document.querySelectorAll('.pill').forEach(b=>{
-  b.onclick=()=>{repeats=+b.dataset.r;document.querySelectorAll('.pill').forEach(x=>x.classList.toggle('active',+x.dataset.r===repeats));};
+  b.onclick=()=>{
+    repeats=+b.dataset.r;
+    document.querySelectorAll('.pill').forEach(x=>x.classList.toggle('active',+x.dataset.r===repeats));
+  };
 });
 document.querySelector('.pill[data-r="2"]').classList.add('active');
 document.addEventListener('pointerdown',()=>{hasGesture=true;},{once:true});
-
-// --- 🌍 Otomatik çeviri: LibreTranslate ---
-async function translateLibre(q, source='de', target='en') {
-  try {
-    const r = await fetch("https://libretranslate.de/translate", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ q, source, target, format: "text" })
-    });
-    const data = await r.json();
-    return data.translatedText || '';
-  } catch (err) {
-    console.error('Translate error:', err);
-    return '(error)';
-  }
-}
-
-$('#btnTranslate').onclick = async () => {
-  const text = $('#deInput').value.trim();
-  if(!text) { setStatus('Please enter German text.'); return; }
-  setStatus('Translating...');
-  const en = await translateLibre(text, 'de', 'en');
-  $('#enInput').value = en;
-  setStatus('✅ Translated!');
-};
-
-// “Enter” basıldığında otomatik çeviri
-$('#deInput').addEventListener('keydown', e => {
-  if(e.key === 'Enter' && !e.ctrlKey && !e.shiftKey){
-    e.preventDefault();
-    $('#btnTranslate').click();
-  }
-});
 </script>
 </body>
 </html>
