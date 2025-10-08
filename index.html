@@ -1,154 +1,337 @@
 <!DOCTYPE html>
-<html lang="tr">
+<html lang="en">
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Hızlı Çeviri (EN/DE)</title>
+  <title>Mein DeutschBuddy</title>
   <style>
-    body{font-family:system-ui,Arial,sans-serif;max-width:800px;margin:32px auto;padding:0 16px;line-height:1.5}
-    h1{font-size:1.2rem;margin-bottom:8px}
-    .row{display:flex;gap:12px;align-items:center;flex-wrap:wrap}
-    textarea{width:100%;min-height:120px;padding:12px;border:1px solid #ddd;border-radius:10px}
-    select,button{padding:10px 12px;border:1px solid #ddd;border-radius:10px;background:#fff;cursor:pointer}
-    button{background:#111;color:#fff;border-color:#111}
-    .muted{color:#666;font-size:.9rem}
-    .small{font-size:.85rem}
-    .pill{padding:6px 10px;border:1px solid #ddd;border-radius:999px;background:#fafafa}
-    .out{white-space:pre-wrap;border:1px solid #eee;border-radius:10px;padding:12px;background:#fcfcfc;min-height:80px}
-    .hint{font-size:.85rem;color:#666;margin-top:8px}
+    :root { --blue:#4461ff; --playing:#ffe9a8; }
+    body{font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif;background:#eaf0ff;color:#222;margin:0;padding:20px;text-align:center}
+    h1{color:var(--blue);margin:8px 0 4px}
+    p.small{opacity:.75;margin:0 0 12px}
+    .wrap{max-width:900px;margin:0 auto}
+    textarea{width:100%;height:120px;border-radius:10px;border:2px solid var(--blue);padding:10px;font-size:16px;background:#fff;margin:6px 0}
+    .controls{display:flex;flex-wrap:wrap;gap:8px;justify-content:center;margin:10px 0 6px}
+    .btn{background:var(--blue);color:#fff;border:none;border-radius:10px;padding:10px 16px;font-weight:700;cursor:pointer}
+    .btn.alt{background:#6b7cff}
+    .status{font-size:.9rem;opacity:.8;min-height:1.2em;margin:4px 0 8px}
+    .card{background:#fff;border-radius:12px;box-shadow:0 4px 8px rgba(0,0,0,.1);padding:14px;margin:12px auto;text-align:left}
+    .line{padding-left:10px;margin:6px 0;border-left:6px solid #999}
+    .line.de{border-color:var(--blue)}
+    .card.playing{background:var(--playing)}
+    .pillbar{display:flex;gap:8px;flex-wrap:wrap;margin-top:8px}
+    .pill{background:#eef2ff;border:1px solid var(--blue);color:var(--blue);border-radius:999px;padding:6px 10px;font-weight:700;cursor:pointer;user-select:none}
+    .pill.toggle.active{background:var(--blue); color:#fff}
+    .panel{display:flex;flex-wrap:wrap;gap:14px;justify-content:center;align-items:center;margin:10px 0}
+    .group{background:#fff;border:1px solid #cdd3ff;border-radius:12px;padding:8px 12px;display:flex;align-items:center;gap:10px}
+    .group label{font-weight:700;color:#344}
+    input[type="range"]{accent-color:var(--blue)}
+    .value{min-width:2.5ch;text-align:right;font-variant-numeric:tabular-nums}
   </style>
 </head>
 <body>
-  <h1>Otomatik Çeviri (Google Translate tarzı)</h1>
-  <div class="row">
-    <span class="pill">Kaynak: <strong>Otomatik algıla</strong></span>
-    <label class="pill">Hedef:
-      <select id="target">
-        <option value="en" selected>İngilizce (EN)</option>
-        <option value="de">Almanca (DE)</option>
-      </select>
-    </label>
-    <button id="swap">↔️ Dilleri Değiştir</button>
+  <div class="wrap">
+    <h1>Mein DeutschBuddy 💙</h1>
+    <p class="small">Paste German & English → <b>Show</b>. Sonra <b>Play</b> / <b>German-only</b>. Hız ve tekrar ayarı aşağıda.</p>
+
+    <textarea id="deInput" placeholder="🇩🇪 German sentences here..."></textarea>
+    <textarea id="enInput" placeholder="🇬🇧 English translations here..."></textarea>
+
+    <div class="controls">
+      <button id="btnShow" class="btn">Show</button>
+      <button id="btnPlay" class="btn">▶ Play (DE→EN)</button>
+      <button id="btnGermanOnly" class="btn">▶ German-only (auto)</button>
+      <button id="btnStop" class="btn alt">⏹ Stop</button>
+      <button id="btnRestart" class="btn alt">⏮ Restart</button>
+    </div>
+
+    <!-- Hız & Tekrar Paneli -->
+    <div class="panel">
+      <div class="group">
+        <label for="deRate">DE speed</label>
+        <input id="deRate" type="range" min="0.4" max="1.2" step="0.05" value="0.75" />
+        <span class="value" id="deRateVal">0.75</span>
+      </div>
+      <div class="group">
+        <label for="enRate">EN speed</label>
+        <input id="enRate" type="range" min="0.5" max="1.3" step="0.05" value="0.85" />
+        <span class="value" id="enRateVal">0.85</span>
+      </div>
+      <div class="group">
+        <label>Repeats</label>
+        <button class="pill toggle" data-repeats="2">x2</button>
+        <button class="pill toggle" data-repeats="3">x3</button>
+        <button class="pill toggle" data-repeats="4">x4</button>
+      </div>
+    </div>
+
+    <div id="status" class="status"></div>
+    <div id="list"></div>
   </div>
 
-  <p class="muted">Metni yaz / yapıştır, sonra “Çevir”e bas.</p>
-  <textarea id="input" placeholder="Metni buraya yaz... (Almanca/İngilizce)"></textarea>
+  <script>
+  'use strict';
 
-  <div class="row">
-    <button id="translateBtn">Çevir</button>
-    <button id="clearBtn" style="background:#666;border-color:#666">Temizle</button>
-  </div>
+  // ---- state ----
+  let currentIndex = 0;
+  let autoMode = false;
+  let germanOnlyMode = false;
+  let lastStoppedIndex = 0;
+  let hasUserGesture = false;
+  let speaking = false;
+  let playId = 0;
 
-  <h3>Sonuç</h3>
-  <div id="output" class="out"></div>
-  <div id="detected" class="hint"></div>
-  <p class="small muted">
-    Not: Bu demo <strong>LibreTranslate</strong> ve yedek olarak <strong>MyMemory</strong> kullanır. Üretimde, anahtarını saklamak için bir
-    proxy (Cloudflare Workers / Vercel / Netlify Functions) ile <strong>Google Cloud Translation</strong> veya <strong>DeepL</strong> önerilir.
-  </p>
+  // Ayarlar
+  let deRate = 0.75;
+  let enRate = 0.85;
+  let repeats = 2; // x2 varsayılan
 
-<script>
-const txtIn = document.getElementById('input');
-const out  = document.getElementById('output');
-const det  = document.getElementById('detected');
-const btn  = document.getElementById('translateBtn');
-const clearBtn = document.getElementById('clearBtn');
-const targetSel = document.getElementById('target');
-const swapBtn = document.getElementById('swap');
+  // ---- helpers ----
+  const $ = sel => document.querySelector(sel);
+  const listEl = $('#list');
+  const statusEl = $('#status');
 
-// Basit durum: hedefi değiştirince “Google Translate gibi hep İngilizce ver” için EN varsayılan
-swapBtn.addEventListener('click', () => {
-  // Çok basit değişim: tespit edilen dili hedef yap, hedefi İngilizce yap vs.
-  // Eğer son tespit yoksa sadece EN/DE arasında toggle yapalım:
-  targetSel.value = (targetSel.value === 'en') ? 'de' : 'en';
-});
+  function setStatus(msg) { statusEl.textContent = msg || ''; }
 
-// ---- Sağlayıcılar ----
-const Providers = {
-  // 1) LibreTranslate (anahtarsız public demo—limitli)
-  libre: {
-    detect: async (q) => {
-      const res = await fetch('https://libretranslate.com/detect', {
-        method: 'POST',
-        headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({ q })
+  function splitSentences(txt) {
+    const parts = (txt || '').replace(/\s+/g,' ').trim().match(/[^.!?]+[.!?]?/g) || [];
+    return parts.map(s => s.trim()).filter(Boolean);
+  }
+
+  function buildPairs() {
+    const de = splitSentences($('#deInput').value);
+    const en = splitSentences($('#enInput').value);
+    const len = Math.max(de.length, en.length);
+    const pairs = [];
+    for (let i=0;i<len;i++) pairs.push({ de: de[i] || '', en: en[i] || '' });
+    return pairs;
+  }
+
+  function stopSpeaking(saveIndex = true) {
+    autoMode = false;
+    speaking = false;
+    germanOnlyMode = false;
+    playId++;
+    const synth = window.speechSynthesis;
+    try { synth.cancel(); setTimeout(()=>synth.cancel(),0); setTimeout(()=>synth.cancel(),60); } catch {}
+    if (saveIndex) lastStoppedIndex = currentIndex;
+    clearPlayingHighlight();
+    setStatus('Stopped.');
+  }
+
+  function speak(text, lang, rate, onend) {
+    if (!('speechSynthesis' in window)) { setStatus('speechSynthesis not supported.'); return; }
+    if (!hasUserGesture) { setStatus('Tap any button once, then Play.'); return; }
+    const myId = playId;
+    if (!text) { if (onend) onend(); return; }
+    const u = new SpeechSynthesisUtterance(text);
+    u.lang = lang; u.rate = rate;
+    u.onstart = () => { if (myId !== playId) return; speaking = true; };
+    u.onerror = () => { if (myId !== playId) return; speaking = false; if (onend) onend(); };
+    u.onend = () => { if (myId !== playId) return; speaking = false; if (onend) onend(); };
+    window.speechSynthesis.speak(u);
+  }
+
+  // Tek cümle için DE→EN dizisini "repeats" kadar uygula
+  function playPairWithRepeats(pair, done) {
+    let count = 0;
+    const step = () => {
+      if (count >= repeats) { if (done) done(); return; }
+      speak(pair.de, 'de-DE', deRate, () => {
+        speak(pair.en, 'en-US', enRate, () => {
+          count++;
+          step();
+        });
       });
-      if (!res.ok) throw new Error('Libre detect failed');
-      const arr = await res.json();
-      // En yüksek olasılıklıyı seç
-      arr.sort((a,b) => b.confidence - a.confidence);
-      return arr[0]?.language || 'auto';
-    },
-    translate: async (q, source, target) => {
-      const body = { q, source, target, format: 'text' };
-      const res = await fetch('https://libretranslate.com/translate', {
-        method: 'POST',
-        headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify(body)
-      });
-      if (!res.ok) throw new Error('Libre translate failed');
-      const data = await res.json();
-      return data.translatedText;
-    }
-  },
+    };
+    step();
+  }
 
-  // 2) MyMemory (yedek—limitli, kalite değişken)
-  mymemory: {
-    detect: async (q) => {
-      // Basit heuristic: Alman alfabesine özgü karakter görünce DE varsay
-      if (/[äöüß]/i.test(q)) return 'de';
-      // İngilizce common words
-      if (/\b(the|and|is|are|you|to|of|in)\b/i.test(q)) return 'en';
-      return 'auto';
-    },
-    translate: async (q, source, target) => {
-      const langpair = `${source === 'auto' ? 'de' : source}|${target}`; // tahmini
-      const url = 'https://api.mymemory.translated.net/get?q=' + encodeURIComponent(q) + '&langpair=' + encodeURIComponent(langpair);
-      const res = await fetch(url);
-      if (!res.ok) throw new Error('MyMemory failed');
-      const data = await res.json();
-      return data?.responseData?.translatedText || '';
-    }
-  },
+  function setPlayingHighlight(i) {
+    clearPlayingHighlight();
+    const card = listEl.querySelector(`[data-idx="${i}"]`);
+    if (card) card.classList.add('playing');
+  }
+  function clearPlayingHighlight() {
+    listEl.querySelectorAll('.card.playing').forEach(c => c.classList.remove('playing'));
+  }
 
-  // 3) Google / DeepL için yer (proxy üzerinden kullan)
-  // google: async (...) => { /* backend proxy ile çağır */ }
-  // deepl:  async (...) => { /* backend proxy ile çağır */ }
-};
+  function playNext() {
+    if (!autoMode) return;
+    const pairs = buildPairs();
 
-async function translateFlow() {
-  const q = txtIn.value.trim();
-  if (!q) { out.textContent = 'Lütfen metin gir.'; return; }
-
-  out.textContent = 'Çeviriliyor...';
-  det.textContent = '';
-
-  // Önce LibreTranslate ile dene → olmazsa MyMemory
-  let detected = 'auto', translated = '';
-  try {
-    detected = await Providers.libre.detect(q);
-    translated = await Providers.libre.translate(q, detected, targetSel.value);
-  } catch (e1) {
-    try {
-      detected = await Providers.mymemory.detect(q);
-      translated = await Providers.mymemory.translate(q, detected, targetSel.value);
-    } catch (e2) {
-      out.textContent = 'Üzgünüm, şu an çeviri servisine ulaşılamıyor.';
+    if (currentIndex >= pairs.length) {
+      autoMode = false; clearPlayingHighlight(); setStatus('Finished.');
       return;
+    }
+
+    const pair = pairs[currentIndex];
+    if (!pair.de && !pair.en) { currentIndex++; playNext(); return; }
+
+    setStatus(`Playing ${currentIndex + 1}/${pairs.length} …`);
+    setPlayingHighlight(currentIndex);
+
+    if (germanOnlyMode) {
+      // Yalnızca Almanca — repeats kadar
+      let c = 0;
+      const loopDE = () => {
+        if (!autoMode) return;
+        if (c >= repeats) { currentIndex++; playNext(); return; }
+        speak(pair.de, 'de-DE', deRate, () => { c++; loopDE(); });
+      };
+      loopDE();
+    } else {
+      // DE→EN dizisini repeats kadar
+      playPairWithRepeats(pair, () => {
+        if (!autoMode) return;
+        currentIndex++;
+        playNext();
+      });
     }
   }
 
-  out.textContent = translated;
-  det.textContent = `Algılanan dil: ${detected.toUpperCase()} → Hedef: ${targetSel.value.toUpperCase()}`;
-}
+  function playAll() {
+    stopSpeaking(false);
+    currentIndex = (lastStoppedIndex || 0);
+    germanOnlyMode = false;
+    autoMode = true;
+    playNext();
+  }
 
-btn.addEventListener('click', translateFlow);
-clearBtn.addEventListener('click', () => { txtIn.value = ''; out.textContent=''; det.textContent=''; });
+  function playAllGerman() {
+    stopSpeaking(false);
+    currentIndex = (lastStoppedIndex || 0);
+    germanOnlyMode = true;
+    autoMode = true;
+    playNext();
+  }
 
-// Ctrl+Enter ile çeviri
-txtIn.addEventListener('keydown', (e) => {
-  if (e.ctrlKey && e.key === 'Enter') translateFlow();
-});
-</script>
+  function restartAll() {
+    stopSpeaking(false);
+    currentIndex = 0;
+    lastStoppedIndex = 0;
+    autoMode = true; // mevcut germanOnlyMode korunur
+    playNext();
+  }
+
+  function playFrom(i, germanOnly=false) {
+    stopSpeaking(false);
+    currentIndex = i;
+    germanOnlyMode = germanOnly;
+    autoMode = true;
+    playNext();
+  }
+
+  // ---- render list ----
+  function renderList() {
+    const pairs = buildPairs();
+    listEl.innerHTML = '';
+
+    pairs.forEach((pair, i) => {
+      if (!pair.de && !pair.en) return;
+
+      const card = document.createElement('div');
+      card.className = 'card';
+      card.dataset.idx = String(i);
+
+      const lineDe = document.createElement('div');
+      lineDe.className = 'line de';
+      lineDe.textContent = `🇩🇪 ${pair.de || ''}`;
+
+      const lineEn = document.createElement('div');
+      lineEn.className = 'line';
+      lineEn.textContent = `🇬🇧 ${pair.en || ''}`;
+
+      const bar = document.createElement('div');
+      bar.className = 'pillbar';
+
+      const bDe = document.createElement('button');
+      bDe.className = 'pill'; bDe.type = 'button';
+      bDe.textContent = '🔊 German';
+      bDe.addEventListener('click', () => {
+        hasUserGesture = true; stopSpeaking(false); speak(pair.de, 'de-DE', deRate);
+      });
+
+      const bEn = document.createElement('button');
+      bEn.className = 'pill'; bEn.type = 'button';
+      bEn.textContent = '🔊 English';
+      bEn.addEventListener('click', () => {
+        hasUserGesture = true; stopSpeaking(false); speak(pair.en, 'en-US', enRate);
+      });
+
+      const bAuto = document.createElement('button');
+      bAuto.className = 'pill'; bAuto.type = 'button';
+      bAuto.textContent = '▶ Auto from here';
+      bAuto.addEventListener('click', () => {
+        hasUserGesture = true; playFrom(i, false);
+      });
+
+      const bAutoDe = document.createElement('button');
+      bAutoDe.className = 'pill'; bAutoDe.type = 'button';
+      bAutoDe.textContent = '▶ German-only from here';
+      bAutoDe.addEventListener('click', () => {
+        hasUserGesture = true; playFrom(i, true);
+      });
+
+      const bStopHere = document.createElement('button');
+      bStopHere.className = 'pill'; bStopHere.type = 'button';
+      bStopHere.textContent = '⏹ Stop here';
+      bStopHere.addEventListener('click', () => {
+        hasUserGesture = true; currentIndex = i; stopSpeaking(true);
+      });
+
+      bar.appendChild(bDe);
+      bar.appendChild(bEn);
+      bar.appendChild(bAuto);
+      bar.appendChild(bAutoDe);
+      bar.appendChild(bStopHere);
+
+      card.appendChild(lineDe);
+      card.appendChild(lineEn);
+      card.appendChild(bar);
+      listEl.appendChild(card);
+    });
+
+    setStatus(`Loaded ${pairs.length} sentence(s).`);
+  }
+
+  // ---- UI bağlama ----
+  $('#btnShow').addEventListener('click', () => { hasUserGesture = true; renderList(); });
+  $('#btnPlay').addEventListener('click', () => { hasUserGesture = true; playAll(); });
+  $('#btnGermanOnly').addEventListener('click', () => { hasUserGesture = true; playAllGerman(); });
+  $('#btnStop').addEventListener('click', () => { hasUserGesture = true; stopSpeaking(); });
+  $('#btnRestart').addEventListener('click', () => { hasUserGesture = true; restartAll(); });
+
+  // Sliderlar
+  const deRateInput = $('#deRate');
+  const enRateInput = $('#enRate');
+  const deRateVal = $('#deRateVal');
+  const enRateVal = $('#enRateVal');
+
+  function updateRateUI() {
+    deRateVal.textContent = Number(deRate).toFixed(2);
+    enRateVal.textContent = Number(enRate).toFixed(2);
+  }
+  deRateInput.addEventListener('input', e => { deRate = Number(e.target.value); updateRateUI(); });
+  enRateInput.addEventListener('input', e => { enRate = Number(e.target.value); updateRateUI(); });
+  updateRateUI();
+
+  // Tekrar butonları
+  const repeatButtons = Array.from(document.querySelectorAll('.pill.toggle'));
+  function setRepeats(n) {
+    repeats = n;
+    repeatButtons.forEach(b => b.classList.toggle('active', Number(b.dataset.repeats) === repeats));
+  }
+  repeatButtons.forEach(btn => {
+    btn.addEventListener('click', () => {
+      hasUserGesture = true;
+      setRepeats(Number(btn.dataset.repeats));
+    });
+  });
+  setRepeats(2); // varsayılan x2
+
+  // İlk gesture
+  document.addEventListener('pointerdown', () => { hasUserGesture = true; }, { once:true });
+  </script>
 </body>
 </html>
